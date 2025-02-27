@@ -198,7 +198,7 @@ class LoadImageWithPath:
         except Exception as e:
             print(f"状态保存失败: {str(e)}")
 
-    def _生成文件列表(self, 路径, 递归):
+    def _生成文件列表(self, 路径, 递归,后缀):
         """生成规范化路径的文件列表"""
         文件列表 = []
         try:
@@ -211,9 +211,17 @@ class LoadImageWithPath:
                     完整路径 = os.path.normpath(os.path.join(路径, f))
                     if os.path.isfile(完整路径):
                         文件列表.append(完整路径)
+            
+                        # 扩展名过滤（保留路径规范化）
+            有效扩展名 = set(ext.strip().lower() for ext in 后缀.split(','))
+            过滤后的文件 = [
+                f for f in 文件列表
+                if os.path.splitext(f)[1][1:].lower() in 有效扩展名
+            ]
+            
         except PermissionError:
             print("错误：没有目录访问权限")
-        return 文件列表
+        return 过滤后的文件
 
     def _验证状态(self, 当前路径, 当前递归, 后缀, 允许RGBA, 自刷新):
         """带递归检测的状态验证"""
@@ -239,15 +247,16 @@ class LoadImageWithPath:
             return True, []
         
         if 自刷新:
-            临时文件列表= self._生成文件列表(当前路径, 当前递归)
+            临时文件列表 = self._生成文件列表(当前路径, 当前递归, 后缀)
             if 临时文件列表 != self.当前状态.get("文件列表"):
+                print(f"{临时文件列表}\n\n----{self.当前状态.get("文件列表")}")
                 return True, 临时文件列表
         
         return False, []
 
     def load_next_image(self, 目录路径, 包括子目录, 后缀, 允许RGBA, 自刷新):
         # 输入预处理
-        有效扩展名 = set(ext.strip().lower() for ext in 后缀.split(','))
+       
         绝对路径 = os.path.normpath(os.path.abspath(目录路径))
         
         # 异常情况处理
@@ -257,21 +266,15 @@ class LoadImageWithPath:
             raise ValueError("必须选择目录")
 
         # 状态决策逻辑
-        Refresh_flag, files_list = self._验证状态(绝对路径, 包括子目录, 后缀, 允许RGBA,自刷新)
-        if Refresh_flag:
-            当前文件 = files_list if files_list else self._生成文件列表(绝对路径, 包括子目录)
-            
-            # 扩展名过滤（保留路径规范化）
-            过滤后的文件 = [
-                f for f in 当前文件
-                if os.path.splitext(f)[1][1:].lower() in 有效扩展名
-            ]
-            
+        是否刷新, 检测文件列表 = self._验证状态(绝对路径, 包括子目录, 后缀, 允许RGBA,自刷新)
+        if 是否刷新:
+            当前文件列表 = 检测文件列表 if 检测文件列表 else self._生成文件列表(绝对路径, 包括子目录, 后缀)
+    
             # 更新状态
             self.当前状态 = {
                 "路径": 绝对路径,
                 "递归": 包括子目录,
-                "文件列表": 过滤后的文件,
+                "文件列表": 当前文件列表,
                 "索引": 0,
                 "刷新": 自刷新,
                 "后缀": 后缀,
@@ -297,13 +300,13 @@ class LoadImageWithPath:
         except Exception as e:
             raise IOError(f"无法加载图像: {当前文件} - {str(e)}")
 
-        # 更新索引（循环逻辑）
-        self.当前状态["索引"] = (当前索引 + 1) % len(self.当前状态["文件列表"])
-        self._保存状态()
-
         # 转换为 ComfyUI 兼容格式
         图像数组 = np.array(图像.convert("RGB")).astype(np.float32) / 255.0
         图像张量 = torch.from_numpy(图像数组)[None,]
+
+        # 更新索引（循环逻辑）
+        self.当前状态["索引"] = (当前索引 + 1) % len(self.当前状态["文件列表"])
+        self._保存状态()
 
         return (图像张量, 子路径, 当前文件, )
 
