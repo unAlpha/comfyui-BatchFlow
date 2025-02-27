@@ -4,6 +4,7 @@ import numpy as np
 from PIL import Image
 import torch
 import json
+import hashlib
 
 class SaveImageWithPath:
     """
@@ -136,12 +137,12 @@ class SaveImageWithPath:
 
 class LoadImageWithPath:
     """
-    高级图像序列加载器
-    功能特性：
-    - 支持递归/非递归目录扫描
-    - 跨会话状态持久化
-    - 智能文件变更检测
-    - 自动索引循环
+    高级图像序列加载器(优化版)
+    速度优化点：
+    - 边扫描边过滤文件扩展名
+    - 使用os.scandir提升文件检测速度
+    - 哈希指纹快速验证文件列表变更
+    - 图像转换流程优化
     """
     
     def __init__(self):
@@ -154,6 +155,7 @@ class LoadImageWithPath:
             "刷新": False,
             "后缀": "",
             "RGBA": True,
+            "文件列表_hash": "",
         }
         self._加载状态()
 
@@ -180,135 +182,129 @@ class LoadImageWithPath:
     CATEGORY = "batch_flow"
 
     def _加载状态(self):
-        """加载持久化状态"""
+        """加载持久化状态(带向后兼容)"""
         try:
             if os.path.exists(self.状态文件):
                 with open(self.状态文件, 'r') as f:
-                    self.当前状态 = json.load(f)
-                    # 路径兼容性处理
+                    载入状态 = json.load(f)
+                    # 兼容旧版状态文件
+                    self.当前状态 = {**self.当前状态, **载入状态}
                     self.当前状态["路径"] = os.path.normpath(self.当前状态["路径"])
         except Exception as e:
             print(f"状态加载失败: {str(e)}")
 
     def _保存状态(self):
-        """保存当前状态"""
+        """保存当前状态(含文件列表哈希)"""
         try:
             with open(self.状态文件, 'w') as f:
-                json.dump(self.当前状态, f, indent=2)
+                json.dump(self.当前状态, f, indent=2, ensure_ascii=False)
         except Exception as e:
             print(f"状态保存失败: {str(e)}")
 
-    def _生成文件列表(self, 路径, 递归,后缀):
-        """生成规范化路径的文件列表"""
+    def _生成文件列表(self, 路径, 递归, 后缀, **其他参数):
+        """高效生成规范化文件列表"""
+        有效扩展名 = {ext.strip().lower() for ext in 后缀.split(',')}
+        有效扩展名带点 = {f".{ext}" for ext in 有效扩展名}
         文件列表 = []
-        try:
-            if 递归:
-                for 根目录, _, 文件 in os.walk(路径):
-                    文件.sort()
-                    文件列表.extend([os.path.normpath(os.path.join(根目录, f)) for f in 文件])
-            else:
-                for f in sorted(os.listdir(路径)):
-                    完整路径 = os.path.normpath(os.path.join(路径, f))
-                    if os.path.isfile(完整路径):
-                        文件列表.append(完整路径)
-            
-                        # 扩展名过滤（保留路径规范化）
-            有效扩展名 = set(ext.strip().lower() for ext in 后缀.split(','))
-            过滤后的文件 = [
-                f for f in 文件列表
-                if os.path.splitext(f)[1][1:].lower() in 有效扩展名
-            ]
-            
-        except PermissionError:
-            print("错误：没有目录访问权限")
-        return 过滤后的文件
 
-    def _验证状态(self, 当前路径, 当前递归, 后缀, 允许RGBA, 自刷新):
-        """带递归检测的状态验证"""
-        保存的路径 = self.当前状态.get("路径", "")
-        保存的递归 = self.当前状态.get("递归", False)
-        保存的自刷新 = self.当前状态.get("刷新", False)
-        保存的后缀 = self.当前状态.get("后缀", "")
-        保存的RGBA= self.当前状态.get("RGBA", True)
+        if 递归:
+            for 根目录, _, 文件 in os.walk(路径):
+                # 先过滤后排序提升性能
+                匹配文件 = sorted(
+                    f for f in 文件
+                    if os.path.splitext(f)[1].lower() in 有效扩展名带点
+                )
+                文件列表.extend(
+                    os.path.normpath(os.path.join(根目录, f)) for f in 匹配文件
+                )
+        else:
+            with os.scandir(路径) as entries:
+                匹配文件 = sorted(
+                    entry.path for entry in entries
+                    if entry.is_file()
+                    and os.path.splitext(entry.name)[1].lower() in 有效扩展名带点
+                )
+                文件列表.extend(os.path.normpath(p) for p in 匹配文件)
 
-        if 后缀 != 保存的后缀:
-            return True, []
-        
-        if 允许RGBA != 保存的RGBA:
-            return True, []
-        
-        if 自刷新 != 保存的自刷新:
-            return True , []
+        return 文件列表
 
-        if 当前路径 != 保存的路径:
-            return True , []
+    def _验证状态(self, 当前参数):
+        """智能状态验证(带哈希指纹验证)"""
+        保存状态 = self.当前状态
         
-        if 保存的递归 != 当前递归:
-            return True, []
+        # 参数变更检查
+        参数变更 = any(
+            当前参数[k] != 保存状态[k]
+            for k in ["路径", "递归", "后缀", "RGBA", "刷新"]
+        )
+        if 参数变更:
+            新列表 = self._生成文件列表(**当前参数)
+            新哈希 = self._计算列表哈希(新列表)
+            return True, 新列表, 新哈希
         
-        if 自刷新:
-            临时文件列表 = self._生成文件列表(当前路径, 当前递归, 后缀)
-            if 临时文件列表 != self.当前状态.get("文件列表"):
-                print(f"{临时文件列表}\n\n----{self.当前状态.get("文件列表")}")
-                return True, 临时文件列表
+        # 自刷新模式检查
+        if 当前参数["刷新"]:
+            新列表 = self._生成文件列表(**当前参数)
+            新哈希 = self._计算列表哈希(新列表)
+            if 新哈希 != 保存状态["文件列表_hash"]:
+                return True, 新列表, 新哈希
         
-        return False, []
+        return False, None, None
+
+    def _计算列表哈希(self, 文件列表):
+        """快速计算文件列表指纹"""
+        return hashlib.md5(",".join(文件列表).encode()).hexdigest()
 
     def load_next_image(self, 目录路径, 包括子目录, 后缀, 允许RGBA, 自刷新):
         # 输入预处理
-       
         绝对路径 = os.path.normpath(os.path.abspath(目录路径))
-        
-        # 异常情况处理
-        if not os.path.exists(绝对路径):
-            raise ValueError(f"路径不存在: {绝对路径}")
         if not os.path.isdir(绝对路径):
-            raise ValueError("必须选择目录")
+            raise ValueError("必须选择有效目录")
 
-        # 状态决策逻辑
-        是否刷新, 检测文件列表 = self._验证状态(绝对路径, 包括子目录, 后缀, 允许RGBA,自刷新)
-        if 是否刷新:
-            当前文件列表 = 检测文件列表 if 检测文件列表 else self._生成文件列表(绝对路径, 包括子目录, 后缀)
-    
-            # 更新状态
-            self.当前状态 = {
-                "路径": 绝对路径,
-                "递归": 包括子目录,
-                "文件列表": 当前文件列表,
-                "索引": 0,
-                "刷新": 自刷新,
-                "后缀": 后缀,
-                "RGBA": 允许RGBA,
-            }
-        else:
-            print("状态验证通过，复用文件列表")
+        # 构造验证参数
+        验证参数 = {
+            "路径": 绝对路径,
+            "递归": 包括子目录,
+            "后缀": 后缀,
+            "RGBA": 允许RGBA,
+            "刷新": 自刷新,
+        }
 
-        # 处理空目录
+        # 执行状态验证
+        需要刷新, 新列表, 新哈希 = self._验证状态(验证参数)
+        if 需要刷新:
+            self.当前状态.update({
+                **验证参数,
+                "文件列表": 新列表,
+                "文件列表_hash": 新哈希,
+                "索引": 0  # 重置索引
+            })
+
+        # 检查空列表
         if not self.当前状态["文件列表"]:
             raise RuntimeError("目录中没有符合条件的文件")
 
         # 加载当前图像
         当前索引 = self.当前状态["索引"]
         当前文件 = self.当前状态["文件列表"][当前索引]
-
-        子路径 = os.path.relpath(当前文件, 绝对路径)
-
+        
         try:
-            图像 = Image.open(当前文件)
-            if not 允许RGBA and 图像.mode == 'RGBA':
-                图像 = 图像.convert("RGB")
+            with Image.open(当前文件) as 图像:
+                if not 允许RGBA and 图像.mode == 'RGBA':
+                    图像 = 图像.convert("RGB")
+                图像数组 = np.array(图像).astype(np.float32) / 255.0
         except Exception as e:
-            raise IOError(f"无法加载图像: {当前文件} - {str(e)}")
+            raise IOError(f"图像加载失败: {当前文件} - {str(e)}")
 
-        # 转换为 ComfyUI 兼容格式
-        图像数组 = np.array(图像.convert("RGB")).astype(np.float32) / 255.0
-        图像张量 = torch.from_numpy(图像数组)[None,]
-
-        # 更新索引（循环逻辑）
+        # 更新索引并保存状态
         self.当前状态["索引"] = (当前索引 + 1) % len(self.当前状态["文件列表"])
         self._保存状态()
 
-        return (图像张量, 子路径, 当前文件, )
+        return (
+            torch.from_numpy(图像数组)[None,],
+            os.path.relpath(当前文件, 绝对路径),
+            当前文件
+        )
 
 NODE_CLASS_MAPPINGS = {
     "SaveImageWithPath": SaveImageWithPath,
