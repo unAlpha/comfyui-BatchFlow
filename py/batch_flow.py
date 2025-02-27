@@ -22,18 +22,32 @@ class SaveImageWithPath:
                 "应用后缀到自定义路径": ("BOOLEAN", {"default": False}),
                 "自定义路径": ("STRING", {"default": ""}),
             },
+            "optional": {
+                "子路径": ("STRING",{"forceInput": True}),
+            },
         }
 
     FUNCTION = "save_image_with_path"
-    CATEGORY = "Agtools"
+    CATEGORY = "batch_flow"
     OUTPUT_NODE = True
 
     RETURN_TYPES = ()
     RETURN_NAMES = ()
 
-    def save_image_with_path(self, 图像, 文件名前缀="", 文件名后缀="", 默认输出目录="output", 自定义路径="", 应用后缀到自定义路径=False):
+    def save_image_with_path(self, 图像, 文件名前缀="", 文件名后缀="", 默认输出目录="output", 自定义路径="", 应用后缀到自定义路径=False, 子路径=""):
         try:
             print(f"DEBUG: 输入 - 文件名前缀: '{文件名前缀}', 文件名后缀: '{文件名后缀}', 默认输出目录: '{默认输出目录}', 自定义路径: '{自定义路径}'")
+            # 处理子路径合并
+            子路径 = 子路径 or ""
+
+            if 子路径:
+                if 自定义路径 and os.path.isdir(自定义路径):
+                    基路径 = 自定义路径
+                else:
+                    基路径 = 默认输出目录
+                新自定义路径 = os.path.join(基路径, 子路径)
+                print(f"DEBUG: 应用子路径后的新自定义路径: {新自定义路径}")
+                自定义路径 = 新自定义路径
 
             # 处理 自定义路径 为目录的情况
             if 自定义路径:
@@ -131,12 +145,15 @@ class LoadImageWithPath:
     """
     
     def __init__(self):
-        self.状态文件 = os.path.join(os.path.dirname(os.path.abspath(__file__)), "comfy_agtools_state.json")
+        self.状态文件 = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tmp_file_state.json")
         self.当前状态 = {
             "路径": "",
             "递归": False,
             "文件列表": [],
-            "索引": 0
+            "索引": 0,
+            "刷新": False,
+            "后缀": "",
+            "RGBA": True,
         }
         self._加载状态()
 
@@ -156,11 +173,11 @@ class LoadImageWithPath:
     def IS_CHANGED(cls, **kwargs):
         return float("nan")
     
-    RETURN_TYPES = ("IMAGE", "STRING")
-    RETURN_NAMES = ("图像", "当前路径")
+    RETURN_TYPES = ("IMAGE", "STRING", "STRING")
+    RETURN_NAMES = ("图像", "子路径", "当前路径")
     FUNCTION = "load_next_image"
 
-    CATEGORY = "Agtools"
+    CATEGORY = "batch_flow"
 
     def _加载状态(self):
         """加载持久化状态"""
@@ -198,20 +215,35 @@ class LoadImageWithPath:
             print("错误：没有目录访问权限")
         return 文件列表
 
-    def _验证状态(self, 当前路径, 当前递归):
+    def _验证状态(self, 当前路径, 当前递归, 后缀, 允许RGBA, 自刷新):
         """带递归检测的状态验证"""
         保存的路径 = self.当前状态.get("路径", "")
         保存的递归 = self.当前状态.get("递归", False)
+        保存的自刷新 = self.当前状态.get("刷新", False)
+        保存的后缀 = self.当前状态.get("后缀", "")
+        保存的RGBA= self.当前状态.get("RGBA", True)
+
+        if 后缀 != 保存的后缀:
+            return True, []
         
-        # 路径标准化比较
-        if os.path.normpath(保存的路径) != os.path.normpath(当前路径):
-            return False
+        if 允许RGBA != 保存的RGBA:
+            return True, []
+        
+        if 自刷新 != 保存的自刷新:
+            return True , []
+
+        if 当前路径 != 保存的路径:
+            return True , []
         
         if 保存的递归 != 当前递归:
-            return False
+            return True, []
         
-        # 文件存在性验证
-        return all(os.path.exists(f) for f in self.当前状态["文件列表"])
+        if 自刷新:
+            临时文件列表= self._生成文件列表(当前路径, 当前递归)
+            if 临时文件列表 != self.当前状态.get("文件列表"):
+                return True, 临时文件列表
+        
+        return False, []
 
     def load_next_image(self, 目录路径, 包括子目录, 后缀, 允许RGBA, 自刷新):
         # 输入预处理
@@ -225,8 +257,9 @@ class LoadImageWithPath:
             raise ValueError("必须选择目录")
 
         # 状态决策逻辑
-        if (自刷新 and not self._验证状态(绝对路径, 包括子目录)) or not self.当前状态["文件列表"]:
-            当前文件 = self._生成文件列表(绝对路径, 包括子目录)
+        Refresh_flag, files_list = self._验证状态(绝对路径, 包括子目录, 后缀, 允许RGBA,自刷新)
+        if Refresh_flag:
+            当前文件 = files_list if files_list else self._生成文件列表(绝对路径, 包括子目录)
             
             # 扩展名过滤（保留路径规范化）
             过滤后的文件 = [
@@ -239,7 +272,10 @@ class LoadImageWithPath:
                 "路径": 绝对路径,
                 "递归": 包括子目录,
                 "文件列表": 过滤后的文件,
-                "索引": 0
+                "索引": 0,
+                "刷新": 自刷新,
+                "后缀": 后缀,
+                "RGBA": 允许RGBA,
             }
         else:
             print("状态验证通过，复用文件列表")
@@ -251,7 +287,9 @@ class LoadImageWithPath:
         # 加载当前图像
         当前索引 = self.当前状态["索引"]
         当前文件 = self.当前状态["文件列表"][当前索引]
-        
+
+        子路径 = os.path.relpath(当前文件, 绝对路径)
+
         try:
             图像 = Image.open(当前文件)
             if not 允许RGBA and 图像.mode == 'RGBA':
@@ -267,7 +305,7 @@ class LoadImageWithPath:
         图像数组 = np.array(图像.convert("RGB")).astype(np.float32) / 255.0
         图像张量 = torch.from_numpy(图像数组)[None,]
 
-        return (图像张量, 当前文件)
+        return (图像张量, 子路径, 当前文件, )
 
 NODE_CLASS_MAPPINGS = {
     "SaveImageWithPath": SaveImageWithPath,

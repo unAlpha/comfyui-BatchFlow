@@ -35,7 +35,7 @@ class PIC2SVG:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("图像",)
     FUNCTION = "process_image"
-    CATEGORY = "Vectorization"
+    CATEGORY = "pic_tools"
 
     def process_image(self, **kwargs):
         # 参数解包
