@@ -21,6 +21,14 @@ def 处理Windows路径(路径: str) -> str:
         return str(Path(路径).resolve())
     return 路径
 
+def 编码路径(路径):
+    if platform.system() == "Windows":
+        try:
+            return 路径.encode('utf-8').decode('mbcs')
+        except:
+            return 路径
+    return 路径
+
 # ======================== 保存图像节点优化 ========================
 class 保存图像带路径:
     """
@@ -133,7 +141,7 @@ class 保存图像带路径:
                     计数器 += 1
 
             # 保存图像（逻辑与原版一致）
-            完整路径 = self.编码路径(完整路径)
+            完整路径 = 编码路径(完整路径)
             os.makedirs(os.path.dirname(完整路径), exist_ok=True)
             图像张量 = 图像.cpu().numpy()
             图像数组 = np.clip(255. * 图像张量.squeeze(), 0, 255).astype(np.uint8)
@@ -144,14 +152,6 @@ class 保存图像带路径:
             raise
 
         return ()
-
-    def 编码路径(self, 路径):
-        if platform.system() == "Windows":
-            try:
-                return 路径.encode('utf-8').decode('mbcs')
-            except:
-                return 路径
-        return 路径
 
     @classmethod
     def IS_CHANGED(cls, 图像, **kwargs):
@@ -194,17 +194,30 @@ class 加载图像带路径:
             }
         }
 
-    RETURN_TYPES = ("IMAGE", "STRING", "STRING")
-    RETURN_NAMES = ("图像", "子路径", "当前路径")
+    RETURN_TYPES = ("IMAGE", "STRING", "STRING", "INT")
+    RETURN_NAMES = ("图像", "子路径", "当前路径", "文件数量")
     FUNCTION = "加载下一张图像"
     CATEGORY = "batch_flow"
 
     def 扫描文件(self, 路径: str, 递归: bool, 扩展名: set) -> List[str]:
-        """文件扫描"""
+        """文件扫描，排除隐藏文件"""
         目录 = Path(路径)
+        文件列表 = []
         if 递归:
-            return [str(p) for p in 目录.rglob('*') if p.suffix.lower() in 扩展名]
-        return [str(p) for p in 目录.glob('*') if p.suffix.lower() in 扩展名]
+            for p in 目录.rglob('*'):
+                # 排除隐藏文件和文件夹
+                if p.name.startswith('.') or any(part.startswith('.') for part in p.parts):
+                    continue
+                if p.suffix.lower() in 扩展名:
+                    文件列表.append(str(p))
+        else:
+            for p in 目录.glob('*'):
+                # 排除隐藏文件
+                if p.name.startswith('.'):
+                    continue
+                if p.suffix.lower() in 扩展名:
+                    文件列表.append(str(p))
+        return 文件列表
 
     def 更新文件列表(self, 路径: str, 递归: bool, 后缀: str) -> Tuple[List[str], str]:
         """更新文件列表并生成哈希"""
@@ -246,16 +259,26 @@ class 加载图像带路径:
     def 加载单张图像(self, 索引: int) -> None:
         try:
             文件路径 = self.当前状态["文件"][索引]
+             # 增加文件存在性检查
+            if not os.path.exists(文件路径):
+                raise FileNotFoundError(f"文件不存在: {文件路径}")
+
+            文件路径 = 编码路径(文件路径)  # 使用编码路径
             img = cv2.imread(文件路径)
             if img is None:
-                raise RuntimeError(f"无法加载图像: {文件路径}")
+                # 更具体的错误信息
+                raise OSError(f"无法加载图像或格式不支持: {文件路径}")
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # 转换为 RGB
             if not self.当前状态.get("允许RGBA", True) and img.shape[2] == 4:
                 img = img[:, :, :3]
             张量 = torch.from_numpy(img.astype(np.float32) / 255.0)
             self.缓存[索引] = 张量
-        except Exception as e:
-            print(f"预加载失败 {文件路径}: {e}")
+        except FileNotFoundError as e:  # 捕获文件找不到
+            print(f"预加载失败: {e}")
+        except OSError as e:          # 捕获 cv2.imread 的特定错误
+             print(f"预加载失败: {e}")
+        except Exception as e:        # 捕获其他异常
+            print(f"预加载失败（未知错误）: {e}")
 
     def 加载下一张图像(self, 
                    目录路径: str,
@@ -305,8 +328,8 @@ class 加载图像带路径:
         
         当前路径 = self.当前状态["文件"][当前索引]
         子路径 = str(Path(当前路径).relative_to(绝对路径))
-        
-        return (图像张量.unsqueeze(0), 子路径, 当前路径)
+        文件数量 = len(self.当前状态["文件"])
+        return (图像张量.unsqueeze(0), 子路径, 当前路径, 文件数量)
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
