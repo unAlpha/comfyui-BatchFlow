@@ -191,7 +191,8 @@ class 加载图像带路径:
                 "后缀": ("STRING", {"default": "jpg,png,jpeg,webp"}),
                 "允许RGBA": ("BOOLEAN", {"default": True}),
                 "自刷新": ("BOOLEAN", {"default": False}),
-            }
+                "索引值": ("INT",{"default": -1}),
+            },
         }
 
     RETURN_TYPES = ("IMAGE", "STRING", "STRING", "INT")
@@ -285,11 +286,14 @@ class 加载图像带路径:
                    包括子目录: bool,
                    后缀: str,
                    允许RGBA: bool,
-                   自刷新: bool) -> Tuple[torch.Tensor, str, str]:
+                   自刷新: bool,
+                   索引值: int = None) -> Tuple[torch.Tensor, str, str, int]:
+        # 路径清理和验证
         绝对路径 = 清理路径(目录路径)
         if not Path(绝对路径).is_dir():
             raise ValueError("无效的目录路径")
 
+        # 检查文件列表是否需要更新
         状态变更 = False
         新文件, 新哈希 = self.更新文件列表(绝对路径, 包括子目录, 后缀)
         
@@ -314,7 +318,18 @@ class 加载图像带路径:
         if not self.当前状态["文件"]:
             raise RuntimeError("没有找到符合条件的文件")
         
-        当前索引 = self.当前状态["索引"]
+        文件数量 = len(self.当前状态["文件"])
+        
+        # 根据索引值决定当前索引
+        if 索引值 >= 0:
+            当前索引 = 索引值 % 文件数量
+            使用自动索引 = False
+        else:
+            # 使用内部自动索引
+            当前索引 = self.当前状态["索引"]
+            使用自动索引 = True
+        
+        # 加载图像
         if 当前索引 not in self.缓存:
             self.加载单张图像(当前索引)
         
@@ -322,13 +337,16 @@ class 加载图像带路径:
         if 图像张量 is None:
             raise RuntimeError("图像加载失败")
         
-        self.当前状态["索引"] = (当前索引 + 1) % len(self.当前状态["文件"])
-        self.预加载图像(self.当前状态["索引"])
+        # 如果使用自动索引，则更新索引并预加载
+        if 使用自动索引:
+            self.当前状态["索引"] = (当前索引 + 1) % 文件数量
+            self.预加载图像(self.当前状态["索引"])
+        
         self.保存状态()
         
+        # 返回结果
         当前路径 = self.当前状态["文件"][当前索引]
         子路径 = str(Path(当前路径).relative_to(绝对路径))
-        文件数量 = len(self.当前状态["文件"])
         return (图像张量.unsqueeze(0), 子路径, 当前路径, 文件数量)
 
     @classmethod
