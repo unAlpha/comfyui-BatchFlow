@@ -61,18 +61,6 @@ class 保存图像带路径:
     RETURN_TYPES = ()
     RETURN_NAMES = ()
 
-    def 生成文件名(self, 目录路径: str, 前缀: str, 后缀: str, 扩展名: str) -> str:
-        """智能生成不重复文件名"""
-        目录 = Path(目录路径)
-        模式 = f"{前缀}_*_{后缀}.{扩展名}"
-        现有文件 = [f for f in 目录.glob(模式)]
-        
-        if not 现有文件:
-            return f"{前缀}_00001_{后缀}.{扩展名}"
-        
-        最大索引 = max(int(f.stem.split('_')[1]) for f in 现有文件)
-        return f"{前缀}_{最大索引 + 1:05}_{后缀}.{扩展名}"
-
     def 处理自定义路径(self, 自定义路径: str, 后缀: str, 应用后缀: bool) -> Tuple[str, str]:
         """处理自定义路径逻辑"""
         if not 自定义路径:
@@ -110,7 +98,7 @@ class 保存图像带路径:
                 if os.path.isdir(自定义路径):
                     是目录 = True
                 else:
-                    目录部分, 文件部分 = os.path.split(自定义路径)
+                    _, 文件部分 = os.path.split(自定义路径)
                     if not 文件部分 or not os.path.splitext(文件部分)[1]:
                         是目录 = True
 
@@ -186,7 +174,7 @@ class 加载图像带路径:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "目录路径": ("STRING", {"default": "./input", "directory": True}),
+                "输入路径": ("STRING", {"default": "./input", "directory": True}),
                 "包括子目录": ("BOOLEAN", {"default": True}),
                 "后缀": ("STRING", {"default": "jpg,png,jpeg,webp"}),
                 "允许RGBA": ("BOOLEAN", {"default": True}),
@@ -197,7 +185,7 @@ class 加载图像带路径:
 
     RETURN_TYPES = ("IMAGE", "STRING", "STRING", "INT")
     RETURN_NAMES = ("图像", "子路径", "当前路径", "文件数量")
-    FUNCTION = "加载下一张图像"
+    FUNCTION = "加载图像"
     CATEGORY = "batch_flow"
 
     def 扫描文件(self, 路径: str, 递归: bool, 扩展名: set) -> List[str]:
@@ -253,27 +241,30 @@ class 加载图像带路径:
             idx = i % len(self.当前状态["文件"])
             if idx not in self.缓存:
                 try:
-                    self.执行器.submit(self.加载单张图像, idx)
+                    self.执行器.submit(self.加载索引图像张量, idx)
                 except Exception as e:
                     print(f"提交预加载任务失败: {e}")
 
-    def 加载单张图像(self, 索引: int) -> None:
+    def 获得图像张量(self, 文件路径: str) -> torch.Tensor:
+        文件路径 = 编码路径(文件路径)  # 使用编码路径
+        img = cv2.imread(文件路径)
+        if img is None:
+            # 更具体的错误信息
+            raise OSError(f"无法加载图像或格式不支持: {文件路径}")
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # 转换为 RGB
+        if not self.当前状态.get("允许RGBA", True) and img.shape[2] == 4:
+            img = img[:, :, :3]
+        张量 = torch.from_numpy(img.astype(np.float32) / 255.0)
+        return 张量
+
+    def 加载索引图像张量(self, 索引: int) -> None:
         try:
             文件路径 = self.当前状态["文件"][索引]
-             # 增加文件存在性检查
+            # 增加文件存在性检查
             if not os.path.exists(文件路径):
                 raise FileNotFoundError(f"文件不存在: {文件路径}")
 
-            文件路径 = 编码路径(文件路径)  # 使用编码路径
-            img = cv2.imread(文件路径)
-            if img is None:
-                # 更具体的错误信息
-                raise OSError(f"无法加载图像或格式不支持: {文件路径}")
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # 转换为 RGB
-            if not self.当前状态.get("允许RGBA", True) and img.shape[2] == 4:
-                img = img[:, :, :3]
-            张量 = torch.from_numpy(img.astype(np.float32) / 255.0)
-            self.缓存[索引] = 张量
+            self.缓存[索引] = self.获得图像张量(文件路径)
         except FileNotFoundError as e:  # 捕获文件找不到
             print(f"预加载失败: {e}")
         except OSError as e:          # 捕获 cv2.imread 的特定错误
@@ -281,73 +272,76 @@ class 加载图像带路径:
         except Exception as e:        # 捕获其他异常
             print(f"预加载失败（未知错误）: {e}")
 
-    def 加载下一张图像(self, 
-                   目录路径: str,
+    def 加载图像(self, 
+                   输入路径: str,
                    包括子目录: bool,
                    后缀: str,
                    允许RGBA: bool,
                    自刷新: bool,
                    索引值: int = None) -> Tuple[torch.Tensor, str, str, int]:
         # 路径清理和验证
-        绝对路径 = 清理路径(目录路径)
-        if not Path(绝对路径).is_dir():
-            raise ValueError("无效的目录路径")
-
-        # 检查文件列表是否需要更新
-        状态变更 = False
-        新文件, 新哈希 = self.更新文件列表(绝对路径, 包括子目录, 后缀)
-        
-        if (绝对路径 != self.当前状态["路径"] or
-            包括子目录 != self.当前状态["递归"] or
-            后缀 != self.当前状态["后缀"] or
-            (自刷新 and 新哈希 != self.当前状态["文件哈希"])):
-            状态变更 = True
-        
-        if 状态变更 or not self.当前状态["文件"]:
-            self.当前状态.update({
-                "路径": 绝对路径,
-                "递归": 包括子目录,
-                "后缀": 后缀,
-                "文件": 新文件,
-                "文件哈希": 新哈希,
-                "索引": 0,
-                "允许RGBA": 允许RGBA
-            })
-            self.缓存.clear()
-        
-        if not self.当前状态["文件"]:
-            raise RuntimeError("没有找到符合条件的文件")
-        
-        文件数量 = len(self.当前状态["文件"])
-        
-        # 根据索引值决定当前索引
-        if 索引值 >= 0:
-            当前索引 = 索引值 % 文件数量
-            使用自动索引 = False
+        绝对路径 = 清理路径(输入路径)
+        if Path(绝对路径).is_dir():
+            # 检查文件列表是否需要更新
+            状态变更 = False
+            新文件, 新哈希 = self.更新文件列表(绝对路径, 包括子目录, 后缀)
+            
+            if (绝对路径 != self.当前状态["路径"] or
+                包括子目录 != self.当前状态["递归"] or
+                后缀 != self.当前状态["后缀"] or
+                (自刷新 and 新哈希 != self.当前状态["文件哈希"])):
+                状态变更 = True
+            
+            if 状态变更 or not self.当前状态["文件"]:
+                self.当前状态.update({
+                    "路径": 绝对路径,
+                    "递归": 包括子目录,
+                    "后缀": 后缀,
+                    "文件": 新文件,
+                    "文件哈希": 新哈希,
+                    "索引": 0,
+                    "允许RGBA": 允许RGBA
+                })
+                self.缓存.clear()
+            
+            if not self.当前状态["文件"]:
+                raise RuntimeError("没有找到符合条件的文件")
+            
+            文件数量 = len(self.当前状态["文件"])
+            
+            # 根据索引值决定当前索引
+            if 索引值 >= 0:
+                当前索引 = 索引值 % 文件数量
+                使用自动索引 = False
+            else:
+                # 使用内部自动索引
+                当前索引 = self.当前状态["索引"]
+                使用自动索引 = True
+            
+            # 加载图像
+            if 当前索引 not in self.缓存:
+                self.加载索引图像张量(当前索引)
+            
+            图像张量 = self.缓存.pop(当前索引, None)
+            if 图像张量 is None:
+                raise RuntimeError("图像加载失败")
+            
+            # 如果使用自动索引，则更新索引并预加载
+            if 使用自动索引:
+                self.当前状态["索引"] = (当前索引 + 1) % 文件数量
+                self.预加载图像(self.当前状态["索引"])
+            
+            self.保存状态()
+            
+            # 返回结果
+            当前路径 = self.当前状态["文件"][当前索引]
+            子路径 = str(Path(当前路径).relative_to(绝对路径))
+            return (图像张量.unsqueeze(0), 子路径, 当前路径, 文件数量)
         else:
-            # 使用内部自动索引
-            当前索引 = self.当前状态["索引"]
-            使用自动索引 = True
-        
-        # 加载图像
-        if 当前索引 not in self.缓存:
-            self.加载单张图像(当前索引)
-        
-        图像张量 = self.缓存.pop(当前索引, None)
-        if 图像张量 is None:
-            raise RuntimeError("图像加载失败")
-        
-        # 如果使用自动索引，则更新索引并预加载
-        if 使用自动索引:
-            self.当前状态["索引"] = (当前索引 + 1) % 文件数量
-            self.预加载图像(self.当前状态["索引"])
-        
-        self.保存状态()
-        
-        # 返回结果
-        当前路径 = self.当前状态["文件"][当前索引]
-        子路径 = str(Path(当前路径).relative_to(绝对路径))
-        return (图像张量.unsqueeze(0), 子路径, 当前路径, 文件数量)
+            当前路径 = 绝对路径
+            子路径 = str((Path(当前路径).name))
+            图像张量 = self.获得图像张量(文件路径=当前路径)
+            return (图像张量.unsqueeze(0), 子路径, 当前路径, 1)
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
