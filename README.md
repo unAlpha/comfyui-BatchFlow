@@ -66,10 +66,6 @@ Each node provides various parameters to meet different needs, such as:
 - Output quality settings
 - Cache and performance optimization
 
-## License
-
-[Please add your license information here]
-
 ## Contributing
 
 Issues and improvement suggestions are welcome! Please participate through GitHub Issues or Pull Requests.
