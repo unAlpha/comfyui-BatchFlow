@@ -1,12 +1,14 @@
 # ComfyUI-BatchFlow
 
-ComfyUI-BatchFlow is an efficient batch processing extension designed for ComfyUI, providing enhanced image batch workflow functionality.
+**ComfyUI Batch Image Loading and Processing Extension**
+
+ComfyUI-BatchFlow is an efficient **batch processing extension** designed for **ComfyUI**, providing enhanced **image batch workflow** functionality with advanced **loading** and saving capabilities.
 
 [中文文档](README_zh.md)
 
 ## Features
 
-- **High-performance Batch Image Loading**: Smart indexing, cache preloading, parallel file scanning
+- **High-performance Batch Image Loading for ComfyUI**: Smart indexing, cache preloading, parallel file scanning
 - **Flexible Image Saving System**: Support for custom paths, subdirectory structures, and file naming
 - **Image to SVG Conversion**: Integrated professional vectorization functionality with multiple conversion parameters
 - **Intelligent Path Management**: Cross-platform compatibility, automatic path format handling
@@ -15,7 +17,7 @@ ComfyUI-BatchFlow is an efficient batch processing extension designed for ComfyU
 
 ### Method 1: Using ComfyUI Manager
 1. Install [ComfyUI Manager](https://github.com/ltdrdata/ComfyUI-Manager) in ComfyUI
-2. Search for "BatchFlow" in the manager search bar and install
+2. Search for "**BatchFlow**" or "**Batch Image Load**" in the manager search bar and install
 
 ### Method 2: Manual Installation
 ```bash
@@ -27,9 +29,9 @@ pip install -r requirements.txt  # if there's a dependency file
 
 ## Main Components
 
-### LoadImageWithPath
-Optimized image loading node with the following features:
-- Batch processing of local image folders
+### LoadImageWithPath - Batch Image Loader
+Optimized **batch image loading node** for **ComfyUI** with the following features:
+- **Batch processing** of local image folders
 - Optional recursive scanning of subdirectories
 - Support for multiple image formats
 - Smart indexing and caching system for improved performance
@@ -50,9 +52,9 @@ Provides advanced image to SVG conversion functionality:
 
 ## Usage Examples
 
-In ComfyUI, you can use these nodes to build efficient batch processing workflows:
+In **ComfyUI**, you can use these nodes to build efficient **batch processing workflows**:
 
-1. Use the `LoadImageWithPath` node to load images from a specified directory
+1. Use the `LoadImageWithPath` node to **load images in batch** from a specified directory
 2. Connect to your image processing workflow
 3. Use `SaveImageWithPath` to save the processed images, preserving the original directory structure if desired
 
@@ -76,5 +78,5 @@ Issues and improvement suggestions are welcome! Please participate through GitHu
 
 ### v1.0.0
 - Initial version released
-- Implemented core batch image processing functionality
+- Implemented core **batch image processing** functionality
 - Added SVG conversion tools
