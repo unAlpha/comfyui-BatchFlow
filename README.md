@@ -1,74 +1,80 @@
 # ComfyUI-BatchFlow
 
-ComfyUI-BatchFlow是一个专为ComfyUI设计的高效批处理扩展，提供了增强的图像批处理工作流功能。
+ComfyUI-BatchFlow is an efficient batch processing extension designed for ComfyUI, providing enhanced image batch workflow functionality.
 
-## 功能特点
+[中文文档](README_zh.md)
 
-- **高性能批量图像加载**：智能索引、缓存预加载、并行文件扫描
-- **灵活的图像保存系统**：支持自定义路径、子目录结构和文件命名
-- **图像到SVG转换**：整合专业矢量化功能，支持多种转换参数
-- **智能路径管理**：跨平台兼容，自动处理路径格式
+## Features
 
-## 安装方法
+- **High-performance Batch Image Loading**: Smart indexing, cache preloading, parallel file scanning
+- **Flexible Image Saving System**: Support for custom paths, subdirectory structures, and file naming
+- **Image to SVG Conversion**: Integrated professional vectorization functionality with multiple conversion parameters
+- **Intelligent Path Management**: Cross-platform compatibility, automatic path format handling
 
-### 方法一：使用ComfyUI管理器
-1. 在ComfyUI中安装[ComfyUI Manager](https://github.com/ltdrdata/ComfyUI-Manager)
-2. 在管理器搜索栏中查找"BatchFlow"并安装
+## Installation
 
-### 方法二：手动安装
+### Method 1: Using ComfyUI Manager
+1. Install [ComfyUI Manager](https://github.com/ltdrdata/ComfyUI-Manager) in ComfyUI
+2. Search for "BatchFlow" in the manager search bar and install
+
+### Method 2: Manual Installation
 ```bash
-cd 你的ComfyUI目录/custom_nodes/
-git clone https://github.com/用户名/comfyui-BatchFlow.git
+cd your_ComfyUI_directory/custom_nodes/
+git clone https://github.com/username/comfyui-BatchFlow.git
 cd comfyui-BatchFlow
-pip install -r requirements.txt  # 如果有依赖文件
+pip install -r requirements.txt  # if there's a dependency file
 ```
 
-## 主要组件
+## Main Components
 
-### 加载图像带路径
-优化的图像加载节点，提供以下功能：
-- 批量处理本地图像文件夹
-- 可选递归扫描子目录
-- 支持多种图像格式
-- 智能索引和缓存系统提高性能
-- 可自定义索引值直接跳转到指定图像
+### LoadImageWithPath
+Optimized image loading node with the following features:
+- Batch processing of local image folders
+- Optional recursive scanning of subdirectories
+- Support for multiple image formats
+- Smart indexing and caching system for improved performance
+- Custom index value to jump directly to specific images
 
-### 保存图像带路径
-增强的图像保存节点，具有：
-- 支持自定义输出路径和文件名格式
-- 自动创建目录结构
-- 智能索引和文件命名管理
-- 支持子路径参数进行组织化保存
+### SaveImageWithPath
+Enhanced image saving node with:
+- Support for custom output paths and filename formats
+- Automatic directory structure creation
+- Smart indexing and file naming management
+- Subdirectory parameter support for organized saving
 
-### PIC2SVG转换
-提供图像到SVG的高级转换功能：
-- 支持彩色或二值模式
-- 可调整的精度和细节控制
-- 自定义输出配置
+### PIC2SVG Conversion
+Provides advanced image to SVG conversion functionality:
+- Support for color or binary mode
+- Adjustable precision and detail control
+- Custom output configuration
 
-## 用法示例
+## Usage Examples
 
-在ComfyUI中，您可以使用这些节点构建高效的批处理工作流：
+In ComfyUI, you can use these nodes to build efficient batch processing workflows:
 
-1. 使用`加载图像带路径`节点从指定目录加载图像
-2. 连接到您的图像处理工作流
-3. 使用`保存图像带路径`保存处理后的图像，可保留原始目录结构
+1. Use the `LoadImageWithPath` node to load images from a specified directory
+2. Connect to your image processing workflow
+3. Use `SaveImageWithPath` to save the processed images, preserving the original directory structure if desired
 
-## 高级配置
+## Advanced Configuration
 
-各节点提供了多种参数以满足不同需求，例如：
-- 文件格式控制
-- 目录递归选项
-- 输出质量设置
-- 缓存和性能优化
+Each node provides various parameters to meet different needs, such as:
+- File format control
+- Directory recursion options
+- Output quality settings
+- Cache and performance optimization
 
-## 贡献
+## License
 
-欢迎提交问题和改进建议！请通过GitHub Issues或Pull Requests参与项目。
+[Please add your license information here]
 
-## 更新日志
+## Contributing
+
+Issues and improvement suggestions are welcome! Please participate through GitHub Issues or Pull Requests.
+
+## Changelog
 
 ### v1.0.0
-- 初始版本发布
-- 实现了批量图像处理核心功能
-- 添加了SVG转换工具
+- Initial version released
+- Implemented core batch image processing functionality
+- Added SVG conversion tools
